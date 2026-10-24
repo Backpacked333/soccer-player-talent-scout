@@ -1,0 +1,63 @@
+# Private local state and secrets
+.env
+.env.*
+!.env.example
+.local/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.key
+uploads/
+storage/
+
+# Raw footage/audio and model checkpoints are private/operator-owned, never source.
+# Tests generate their own fictional media in temporary directories.
+*.[mM][pP]4
+*.[mM][oO][vV]
+*.[wW][eE][bB][mM]
+*.[mM][kK][vV]
+*.[aA][vV][iI]
+*.[mM][pP][eE][gG]
+*.[mM][pP][gG]
+*.[mM]4[vV]
+*.[mM]2[tT][sS]
+*.[mM][pP]3
+*.[wW][aA][vV]
+*.[mM]4[aA]
+*.[aA][aA][cC]
+*.[fF][lL][aA][cC]
+*.[oO][gG][gG]
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+*.pkl
+*.pickle
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Frontend/build artifacts
+node_modules/
+dist/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+coverage/
+
+# Local editor/runtime files
+.DS_Store
+.idea/
+.vscode/
+*.log

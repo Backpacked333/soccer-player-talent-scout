@@ -1,0 +1,31 @@
+name: Quality gates
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  private-product:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.13.5'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install local video tools
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Locked ordinary installation (no credentials or models)
+        run: make setup
+      - name: Python and frontend lint, type checks, tests and production build
+        run: make check
+      - name: Audit installed Python and frontend packages
+        run: make audit

@@ -1,0 +1,20 @@
+{
+  "name": "scoutroom",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private soccer scouting through reviewed evidence, not invented analysis",
+  "scripts": {
+    "setup": "make setup",
+    "dev": "make web",
+    "dev:api": "make api",
+    "dev:worker": "make worker",
+    "db:init": "make db",
+    "lint": "make lint",
+    "typecheck": "make typecheck",
+    "build": "make build",
+    "test": "make test",
+    "audit": "make audit",
+    "check": "make check"
+  },
+  "engines": { "node": ">=22.12.0" }
+}
