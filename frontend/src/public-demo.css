@@ -1,0 +1,38 @@
+.public-demo .sidebar { z-index: 40; }
+.public-demo .brand { font-size: 24px; }
+.public-demo .workspace-switch { cursor: default; }
+.public-demo .workspace-switch small { display: block; margin-top: 5px; color: #77877b; font-size: 11px; }
+.demo-navigation { display: grid; gap: 5px; padding: 0 15px; }
+.demo-navigation a { display: flex; align-items: center; gap: 12px; padding: 13px 14px; border-radius: 8px; color: #7d8b80; font-size: 12px; font-weight: 600; }
+.demo-navigation a:hover, .demo-navigation a.active { color: #1e4933; background: #edf3e9; }
+.public-demo .sidebar-principle strong { display: block; margin-top: 9px; }
+.public-demo .workspace-footer { display: flex; justify-content: space-between; gap: 12px; }
+.demo-steps { padding: 7px 22px; }
+.demo-steps > a { display: flex; align-items: center; gap: 15px; padding: 20px 0; border-bottom: 1px solid #edf0e9; }
+.demo-steps > a:last-child { border: 0; }
+.demo-steps > a > span { font-family: Georgia, serif; font-size: 26px; color: #74997c; }
+.demo-steps strong { font-size: 14px; }.demo-steps p { margin: 6px 0 0; color: #778075; font-size: 12px; line-height: 1.6; }
+.demo-section { margin-top: 24px; }.demo-back { display: inline-flex; margin-bottom: 18px; }
+.demo-filter { display: flex; flex-wrap: wrap; align-items: end; gap: 18px; margin-bottom: 22px; }
+.demo-filter .field { min-width: 200px; flex: 1; max-width: 420px; }.demo-filter > span { align-self: center; }
+.demo-player-grid, .demo-about-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+.demo-player-card { display: block; padding: 28px; background: white; border: 1px solid #e3e8de; border-radius: 12px; transition: border-color .15s, transform .15s; }
+.demo-player-card:hover { border-color: #7caa87; transform: translateY(-2px); }
+.demo-player-card h2 { font-size: 23px; margin-top: 20px; }.demo-player-card p { font-size: 13px; margin: 7px 0; }
+.demo-shirt { display: inline-flex; align-items: center; justify-content: center; width: 57px; height: 60px; border-radius: 15px 15px 22px 22px; color: #28563b; background: #e7efe1; font: 700 25px Georgia, serif; }
+.small-shirt { width: 43px; height: 45px; font-size: 19px; flex-shrink: 0; }
+.demo-card-stats { display: flex; gap: 30px; border-top: 1px solid #edf0e9; padding: 22px 0; margin-top: 20px; }
+.demo-card-stats strong { display: block; font-size: 25px; }.demo-card-stats span { font-size: 11px; color: #788173; }
+.demo-date-tabs { display: flex; gap: 12px; flex-wrap: wrap; }.demo-date-tabs button { display: flex; flex-direction: column; gap: 5px; min-width: 155px; }.demo-date-tabs small { font-weight: 400; font-size: 10px; }
+.demo-history-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; padding: 30px 0; }.demo-history-stats strong { display: block; font-size: 32px; font-family: Georgia, serif; }.demo-history-stats span { display: block; color: #758070; font-size: 12px; margin-top: 5px; }
+.demo-history-list { padding: 0 4px; }.demo-history-list a { display: flex; gap: 18px; align-items: center; border-left: 1px solid #d8e4d1; padding: 13px 0 24px 20px; position: relative; }.demo-history-list p { margin: 5px 0; font-size: 12px; color: #718069; }.demo-history-list small { color: #677261; }.demo-history-list svg { margin-left: auto; }.demo-timeline-dot { position: absolute; left: -5px; top: 19px; width: 9px; height: 9px; border-radius: 50%; background: #719780; }
+.demo-relationships { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; padding: 25px; }.demo-relationships article { border: 1px solid #e8ece3; padding: 19px; border-radius: 9px; }.demo-relationships .badge { display: table; margin: 13px 0; }.demo-relationships p { line-height: 1.6; font-size: 12px; }
+.demo-no-video { display: flex; gap: 18px; padding: 22px; border: 1px dashed #ccd8c7; background: #f0f4ec; border-radius: 10px; margin-bottom: 24px; }.demo-no-video svg { flex-shrink: 0; color: #698368; }.demo-no-video p { margin: 7px 0 0; color: #707d69; font-size: 12px; line-height: 1.7; }
+.demo-roster { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px 24px; gap: 0 30px; }.demo-roster a { display: flex; align-items: center; gap: 13px; padding: 18px 0; }.demo-roster p { margin: 5px 0; font-size: 12px; }.demo-roster small { font-size: 11px; color: #6c7a67; }.demo-roster svg { margin-left: auto; }
+.public-demo td small { display: block; margin-top: 6px; font-size: 10px; color: #7b8276; }.public-demo td { vertical-align: top; }.public-demo td a { color: #326d48; }.public-demo td ul { max-width: 260px; padding-left: 16px; }
+.demo-pair { margin: 22px 0; padding: 23px; border-radius: 9px; background: #f3f6ef; border: 1px solid #e0e7d9; }.demo-pair h3 { margin: 15px 0 10px; font-size: 22px; }.demo-pair p, .demo-pair li { font-size: 13px; line-height: 1.7; }.demo-pair ul { padding-left: 20px; }
+.demo-contests p { border-bottom: 1px solid #edf0e8; padding: 12px 0; font-size: 12px; }.demo-contests small { display: block; color: #7a8572; margin-top: 4px; }
+.demo-about-grid ul { padding-left: 19px; margin: 0; }.demo-about-grid li { margin-bottom: 17px; line-height: 1.8; font-size: 13px; }.public-demo .pad > p { line-height: 1.8; }.public-demo summary { cursor: pointer; }
+@media (max-width: 900px) { .demo-player-grid, .demo-about-grid, .demo-relationships { grid-template-columns: 1fr; }.demo-history-stats { gap: 12px; }.demo-roster { grid-template-columns: 1fr; }.public-demo .workspace-footer { flex-direction: column; } }
+@media (max-width: 500px) { .demo-date-tabs { display: grid; grid-template-columns: 1fr; }.demo-date-tabs button { flex-direction: row; align-items: center; justify-content: space-between; }.demo-history-stats strong { font-size: 27px; }.demo-history-stats span { font-size: 10px; }.demo-no-video { padding: 17px; }.public-demo .topbar-breadcrumb { font-size: 11px; }.public-demo .demo-notice { align-items: flex-start; }.demo-player-card { padding: 22px; } }
+@media (prefers-reduced-motion: reduce) { .demo-player-card { transition: none; }.demo-player-card:hover { transform: none; } }

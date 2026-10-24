@@ -29,3 +29,5 @@ jobs:
         run: make check
       - name: Audit installed Python and frontend packages
         run: make audit
+      - name: Build isolated fictional public demo
+        run: npm --prefix frontend run build:demo

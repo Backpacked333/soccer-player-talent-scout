@@ -17,6 +17,16 @@ No model weights, datasets, hosted API credentials, real minors' data or GPUs ar
 
 ## Fresh local setup
 
+### Login-free public demonstration
+
+The separate static demo is built with `npm --prefix frontend run build:demo`. It uses only the explicitly fictional snapshot in `frontend/demo-public/scoutroom-demo.json`: four invented players and three authored 20-minute fixtures. Profiles, date-bounded histories, event filters, pass comparisons and provisional duel estimates are interactive; accounts, uploads, editing and the private API are not included in this bundle. No video is analyzed by the public demo.
+
+Regenerate the snapshot from an isolated temporary database with `uv run --project backend --frozen --extra dev python -m app.demo_export --output frontend/demo-public/scoutroom-demo.json`. This command accepts no source database/workspace and uses the real seeded API/analytics engines; credentials, reviewer account IDs and private paths are removed. Its input is not real footage or personal data. Normal `npm --prefix frontend run build` builds the private application and does not copy the public demo JSON.
+
+To publish only the static demo, build it, copy **only** `frontend/dist/` into a clean deployment directory, then apply `frontend/demo-vercel.json` as that directory's `vercel.json`. Do not deploy the repository root, private storage, database or API with these settings. The public deployment intentionally has no write endpoints.
+
+### Private application
+
 Requirements: Python **3.11**, recent `uv` (validated with **0.13.5**, supporting lock revision 5), Node **>=22.12** (validated with **24.22.1**), npm, GNU Make, and system **ffmpeg + ffprobe**. On Debian/Ubuntu the operator can install the system package with `sudo apt-get install ffmpeg`; use a currently patched OS package. No external credentials are needed.
 
 From the repository root:
