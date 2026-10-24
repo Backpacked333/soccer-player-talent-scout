@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { Activity, ArrowUpRight, ChevronLeft, ChevronRight, Crosshair, Eye, Layers, Maximize, Pause, Play, ScanLine, ShieldCheck, Volume2, VolumeX } from 'lucide-react';
 import { api } from './api';
-import { useResource } from './hooks';
+import { useAction, useResource } from './hooks';
 import { EventValue } from './Knowledge';
 import type { Identity, Observation } from './intelligence-types';
 import type { EventRead, JobRead, MatchRead, PlayerRead, UploadRead } from './types';
@@ -27,6 +27,7 @@ const trackLabel = (id: string) => id.split(':').at(-1) ?? id;
 
 export function VideoEvidence({ videoRef, match, upload, job, identities, players, events, onReviewTrack }: Props) {
   const room = useRef<HTMLElement>(null);
+  const revalidation = useAction();
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [seeking, setSeeking] = useState(false);
@@ -132,7 +133,7 @@ export function VideoEvidence({ videoRef, match, upload, job, identities, player
         <div className="ev-stage-bottom"><span>{sample.timestamp !== null ? `Sample ${sourceTime(sample.timestamp)} · ${sample.age!.toFixed(2)}s old${sample.held ? ' · held position, not interpolated' : ''}` : 'No positional claim for this frame'}</span><span>{visible.length} shown / {sample.items.length} stored boxes</span></div>
         {!ready && !error && <div className="ev-awaiting"><ScanLine size={32} /><span>Loading private source…</span></div>}
       </div>
-      {ready && evidence.data && !evidence.loading && !evidence.error && !aligned && <p className="ev-error" role="alert">Boxes and trails are hidden: source orientation / pixel geometry is unknown or differs from the browser presentation. Reprocess legacy metadata, or upload a normalized export. No positional claims are made.</p>}
+      {ready && evidence.data && !evidence.loading && !evidence.error && !aligned && <div className="ev-error" role="alert"><p>Boxes and trails are hidden: source orientation / pixel geometry is unknown or differs from the browser presentation. No positional claims are made.</p><p>Revalidate the original private source without changing observations or review history. Unsupported transforms remain hidden.</p>{job && <button type="button" disabled={revalidation.busy || ['queued', 'running'].includes(job.status)} onClick={() => void revalidation.run(async () => { await api(`/jobs/${job.id}/revalidate-source`, { method: 'POST' }); evidence.reload(); }, 'Source revalidated; evidence preserved.')}>{revalidation.busy ? 'Revalidating source…' : 'Revalidate source geometry'}</button>}{revalidation.error && <p>{revalidation.error}</p>}</div>}
       {error && <p className="ev-error" role="alert">{error}</p>}
       {evidence.error && <p className="ev-error" role="alert">{evidence.error} <button onClick={evidence.reload}>Retry evidence</button></p>}
       {evidence.data?.truncated && <p className="ev-error" role="alert">This window exceeds 5,000 observations. Overlays are hidden rather than presenting an incomplete set.</p>}

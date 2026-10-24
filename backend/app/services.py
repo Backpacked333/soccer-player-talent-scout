@@ -119,7 +119,7 @@ def probe_upload(path: Path, settings: Settings) -> VideoMetadata:
     valid_magic = header.startswith(b"\x1aE\xdf\xa3") if path.suffix == ".webm" else len(header) >= 12 and header[4:8] == b"ftyp"
     if not valid_magic:
         fail(422, "invalid_video", "The file content is not a supported video container.")
-    command = [settings.ffprobe_binary, "-v", "error", "-protocol_whitelist", "file", "-format_whitelist", "mov,matroska,webm", "-max_alloc", "67108864", "-probesize", "10000000", "-analyzeduration", "10000000", "-show_entries", "format=format_name,duration:stream=codec_type,codec_name,width,height,avg_frame_rate,sample_aspect_ratio:stream_tags=rotate:stream_side_data_list", "-of", "json"]
+    command = [settings.ffprobe_binary, "-v", "error", "-protocol_whitelist", "file", "-format_whitelist", "mov,matroska,webm", "-max_alloc", "67108864", "-probesize", "10000000", "-analyzeduration", "10000000", "-show_streams", "-show_format", "-of", "json"]
     try:
         with open_private(settings, path.name) as media, tempfile.TemporaryFile() as output:
             command += ["-i", f"/proc/self/fd/{media.fileno()}"]

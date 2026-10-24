@@ -111,6 +111,8 @@ Clients must hide overlays on truncation, scope mismatch, request failure or an 
 
 The timeline's optional `display_geometry` records the probed raw-to-presentation transform and pixel-corrected display aspect ratio. Orthogonal rotations/reflections are supported; arbitrary/projective/unknown matrices are not. A null value (including legacy unprobed metadata) must disable positional overlays. The client also compares the expected aspect with the browser's actual video dimensions. This does not change stored raw observation coordinates.
 
+`POST /api/jobs/{job_id}/revalidate-source` restores legacy geometry through a CSRF-protected, workspace-scoped source check. It requires current rights, a retained private upload and a settled job. It verifies size, SHA-256 and original dimensions/duration/FPS before updating only job metadata and its audit record, with a concurrency guard. No observations, chunk ledger, identities, events, review decisions or job status are changed. Failed validation leaves metadata untouched; unsupported transforms still return null geometry. Full-file hashing uses bounded memory and may take time for long matches. Media validation shares the upload concurrency limit.
+
 ## Transparent analytics and exports
 
 | Method | Path | Query | Response |

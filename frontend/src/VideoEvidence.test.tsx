@@ -102,6 +102,13 @@ describe('synchronized evidence workspace', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('source orientation / pixel geometry is unknown');
     expect(screen.queryByRole('button', { name: 'Inspect Player · player-1' })).not.toBeInTheDocument();
   });
+  it('revalidates legacy source metadata and reloads observations without changing review evidence', async () => {
+    vi.mocked(api).mockResolvedValueOnce({ ...window, display_geometry: null }).mockResolvedValueOnce({}).mockResolvedValue(window);
+    const { time } = setup(); time(1);
+    await userEvent.click(await screen.findByRole('button', { name: 'Revalidate source geometry' }));
+    expect(api).toHaveBeenCalledWith(`/jobs/${job.id}/revalidate-source`, { method: 'POST' });
+    expect(await screen.findByRole('button', { name: 'Inspect Player · player-1' })).toBeVisible();
+  });
   it('does not draw truncated or wrong-source evidence', async () => {
     vi.mocked(api).mockResolvedValue({ ...window, truncated: true });
     const { time } = setup(); time(1);

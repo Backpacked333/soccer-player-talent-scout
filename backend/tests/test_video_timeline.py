@@ -5,7 +5,8 @@ from uuid import uuid4
 import pytest
 
 from app.db import get_session_factory, utcnow
-from app.models import ProcessingChunk, ProcessingJob, TrackObservation, Upload
+from app.models import AuditLog, ProcessingChunk, ProcessingJob, TrackObservation, Upload
+from sqlalchemy import select
 from test_api_workflows import match_setup, signup, upload
 
 
@@ -44,6 +45,57 @@ def test_window_ordering_half_open_interval_and_completed_evidence_only(timeline
     body = first.get(f"/api/jobs/{job}/timeline?start=0&end=3").json()
     assert [row["timestamp_seconds"] for row in body["items"]] == [0, .5, 1]
     assert all(row["player_id"] is None for row in body["items"])
+
+
+def test_legacy_metadata_can_be_revalidated_without_destroying_evidence(timeline_source):
+    first, _, factory, job, _, _ = timeline_source
+    timeline = f"/api/jobs/{job}/timeline?start=0&end=3"
+    before = first.get(timeline).json()
+    with factory() as db:
+        saved = db.get(ProcessingJob, job)
+        saved.result_json = {**saved.result_json, "metadata": {k: v for k, v in saved.result_json["metadata"].items() if k != "display_geometry"}}
+        db.commit()
+    assert first.get(timeline).json()["display_geometry"] is None
+    response = first.post(f"/api/jobs/{job}/revalidate-source")
+    assert response.status_code == 200, response.text
+    assert response.json()["display_geometry"]["transform"] == "identity"
+    after = first.get(timeline).json()
+    assert after == before
+    with factory() as db:
+        assert db.get(ProcessingJob, job).status == "needs_review"
+        assert db.scalar(select(AuditLog).where(AuditLog.entity_id == job, AuditLog.action == "source_geometry_revalidated")) is not None
+
+
+def test_revalidation_requires_authorization_csrf_retention_and_settled_job(timeline_source):
+    first, second, factory, job, source, _ = timeline_source
+    path = f"/api/jobs/{job}/revalidate-source"
+    assert second.post(path, headers={"Origin": "http://localhost:5173"}).status_code == 401
+    signup(second, "source-other")
+    assert second.post(path).status_code == 404
+    assert first.post(path, headers={"X-CSRF-Token": "wrong"}).status_code == 403
+    with factory() as db:
+        db.get(ProcessingJob, job).status = "running"
+        db.commit()
+    assert first.post(path).status_code == 409
+    with factory() as db:
+        db.get(ProcessingJob, job).status = "completed"
+        db.commit()
+    assert first.post(path).status_code == 200
+    with factory() as db:
+        db.get(Upload, source).created_at = utcnow() - timedelta(days=31)
+        db.commit()
+    assert first.post(path).status_code == 410
+
+
+def test_revalidation_refuses_changed_source_and_preserves_metadata(timeline_source):
+    first, _, factory, job, source, _ = timeline_source
+    with factory() as db:
+        saved = db.get(ProcessingJob, job).result_json
+        db.get(Upload, source).sha256 = "0" * 64
+        db.commit()
+    assert first.post(f"/api/jobs/{job}/revalidate-source").status_code == 409
+    with factory() as db:
+        assert db.get(ProcessingJob, job).result_json == saved
 
 
 @pytest.mark.parametrize("query", ["start=0&end=31", "start=1&end=1", "start=2&end=1", "start=-1&end=2", "start=nan&end=2", "start=0&end=inf", "start=0&end=14401"])
