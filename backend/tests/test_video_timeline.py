@@ -39,6 +39,7 @@ def test_window_ordering_half_open_interval_and_completed_evidence_only(timeline
     assert body["job_id"] == job and body["upload_id"] == source
     assert [row["timestamp_seconds"] for row in body["items"]] == [.5]
     assert body["truncated"] is False
+    assert body["display_geometry"]["transform"] == "identity"
     assert [row["status"] for row in body["segments"]] == ["completed", "failed"]
     body = first.get(f"/api/jobs/{job}/timeline?start=0&end=3").json()
     assert [row["timestamp_seconds"] for row in body["items"]] == [0, .5, 1]

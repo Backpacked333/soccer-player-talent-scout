@@ -21,7 +21,7 @@ from app.db import utcnow
 from app.models import Appearance, Match, ProcessingChunk, ProcessingJob, RightsAttestation, TrackObservation, Upload
 from app.intelligence.service import identity_service
 from app.processing_contracts import ProcessingChunkRead
-from app.schemas import JobRead, Mode, ObservationPage, ObservationRead, ProcessingChunkPage, TimelineSegment, TimelineWindow, UploadRead, UploadResponse
+from app.schemas import JobRead, Mode, ObservationPage, ObservationRead, ProcessingChunkPage, TimelineSegment, TimelineWindow, UploadRead, UploadResponse, VideoMetadata
 from app.services import bounded, check_retention, open_private, owned, private_path, probe_upload, public_job, validate_filename
 
 router = APIRouter()
@@ -269,6 +269,10 @@ def timeline_window(job_id: str, start: float = Query(ge=0, le=14400, allow_inf_
     if not 0 < end - start <= 30:
         fail(422, "timeline_interval", "Request a positive source window of at most 30 seconds.")
     result = TimelineWindow(job_id=job.id, upload_id=job.upload_id, start_seconds=start, end_seconds=end)
+    try:
+        result.display_geometry = VideoMetadata.model_validate(job.result_json.get("metadata")).display_geometry
+    except (ValueError, AttributeError):
+        pass
     segments = db.execute(select(ProcessingChunk.start_seconds, ProcessingChunk.end_seconds, ProcessingChunk.status).where(ProcessingChunk.workspace_id == principal.workspace_id, ProcessingChunk.job_id == job.id, ProcessingChunk.upload_id == job.upload_id, ProcessingChunk.match_id == job.match_id, ProcessingChunk.is_synthetic == job.is_synthetic).order_by(ProcessingChunk.sequence).limit(1440))
     result.segments = [TimelineSegment(start_seconds=a, end_seconds=b, status=status) for a, b, status in segments]
     if statement is not None:

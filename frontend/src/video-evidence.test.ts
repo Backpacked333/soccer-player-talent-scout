@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import type { Identity, Observation } from './intelligence-types';
-import { confirmedIdentity, sampleAt, sourceTime, trackTrail, validateTimeline } from './video-evidence';
+import { confirmedIdentity, displayBox, displayPoint, sampleAt, sourceTime, trackTrail, validateTimeline } from './video-evidence';
 import type { TimelineWindow } from './video-evidence';
 
 const observation: Observation = { id: 'one', track_id: 'chunk:a:1', processing_chunk_id: 'a', timestamp_seconds: 1, bbox: [.1, .2, .3, .4], label: 'player', confidence: .9, model_version: 'synthetic-only' };
 const identity: Identity = { id: 'identity', upload_id: 'upload', track_id: observation.track_id, player_id: 'player', status: 'confirmed', start_seconds: 1, end_seconds: 2, reviewed_at: '2025-01-01', reviewed_by: 'reviewer', reason: 'Fictional test', revision: 1 };
 
 describe('source-time overlay rules', () => {
+  it('transforms raw boxes and trail points into the displayed source orientation', () => {
+    const raw: Observation['bbox'] = [.1, .2, .3, .6];
+    const geometry = { transform: 'rotate_90_ccw' as const, aspect_ratio: .75 };
+    displayBox(raw, geometry).forEach((value, index) => expect(value).toBeCloseTo([.2, .7, .6, .9][index]));
+    expect(displayPoint(.2, .6, geometry)).toEqual([.6, .8]);
+    const transforms = { identity: [.1, .2, .3, .6], rotate_180: [.7, .4, .9, .8], rotate_270_ccw: [.4, .1, .8, .3], flip_x: [.7, .2, .9, .6], flip_y: [.1, .4, .3, .8], transpose: [.2, .1, .6, .3], transverse: [.4, .7, .8, .9] };
+    for (const [transform, expected] of Object.entries(transforms)) displayBox(raw, { transform: transform as keyof typeof transforms, aspect_ratio: 1 }).forEach((value, index) => expect(value).toBeCloseTo(expected[index]));
+  });
   it('never displays future evidence, old boxes or another sample as a live position', () => {
     expect(sampleAt([observation], .9, 30, .5, true).items).toEqual([]);
     expect(sampleAt([observation], 1, 30, .5, true).held).toBe(false);

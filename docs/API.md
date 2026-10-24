@@ -109,6 +109,8 @@ Spatial value is unavailable without the operator-only `SCOUT_ACTION_VALUE_ARTIF
 
 Clients must hide overlays on truncation, scope mismatch, request failure or an unresolved source-window change, not imply a partial result is complete. The private viewer requests 10-second buckets with surrounding context for trails, uses the presented-video-frame clock where supported, and never interpolates positions. Identity assignments are separate reviewed records; raw `player_id` fields must not be treated as automatic identity confirmation. Segment completion means sampled detection coverage, not exhaustive events or uninterrupted tracking.
 
+The timeline's optional `display_geometry` records the probed raw-to-presentation transform and pixel-corrected display aspect ratio. Orthogonal rotations/reflections are supported; arbitrary/projective/unknown matrices are not. A null value (including legacy unprobed metadata) must disable positional overlays. The client also compares the expected aspect with the browser's actual video dimensions. This does not change stored raw observation coordinates.
+
 ## Transparent analytics and exports
 
 | Method | Path | Query | Response |

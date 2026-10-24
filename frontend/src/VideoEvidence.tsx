@@ -7,7 +7,7 @@ import { EventValue } from './Knowledge';
 import type { Identity, Observation } from './intelligence-types';
 import type { EventRead, JobRead, MatchRead, PlayerRead, UploadRead } from './types';
 import { humanize, localVideoPath, percent } from './utils';
-import { confirmedIdentity, sampleAt, sourceTime, trackTrail, validateTimeline } from './video-evidence';
+import { confirmedIdentity, displayBox, displayPoint, sampleAt, sourceTime, trackTrail, validateTimeline } from './video-evidence';
 import type { TimelineWindow } from './video-evidence';
 import './video-evidence.css';
 
@@ -31,6 +31,7 @@ export function VideoEvidence({ videoRef, match, upload, job, identities, player
   const [playing, setPlaying] = useState(false);
   const [seeking, setSeeking] = useState(false);
   const [ready, setReady] = useState(false);
+  const [presentationAspect, setPresentationAspect] = useState<number | null>(null);
   const [muted, setMuted] = useState(true);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'tracks' | 'events' | 'pipeline'>('tracks');
@@ -43,7 +44,6 @@ export function VideoEvidence({ videoRef, match, upload, job, identities, player
   const [classFilter, setClassFilter] = useState('all');
   const duration = upload.duration_seconds ?? 0;
   const fps = upload.fps && upload.fps > 0 ? upload.fps : 30;
-  const imageHeight = 1000 * ((upload.height || 9) / (upload.width || 16));
   const cadence = job?.processing_coverage?.sample_interval_seconds ?? null;
   const windowStart = Math.max(0, Math.floor(time / 10) * 10 - 5);
   const windowEnd = Math.min(duration, Math.floor(time / 10) * 10 + 15);
@@ -52,8 +52,12 @@ export function VideoEvidence({ videoRef, match, upload, job, identities, player
     const result = await api<TimelineWindow>(`/jobs/${job.id}/timeline?start=${windowStart}&end=${windowEnd}`, { signal });
     return validateTimeline(result, job.id, upload.id, match.id, match.is_synthetic, windowStart, windowEnd);
   }, `${job?.id}:${job?.updated_at}:${upload.id}:${windowStart}:${windowEnd}`);
+  const geometry = evidence.data?.display_geometry;
+  const aligned = !!geometry && presentationAspect !== null && Math.abs(geometry.aspect_ratio / presentationAspect - 1) < .01;
+  const aspect = presentationAspect ?? geometry?.aspect_ratio ?? (upload.width || 16) / (upload.height || 9);
+  const imageHeight = 1000 / aspect;
   const items = useMemo(() => !evidence.loading && !evidence.error && !evidence.data?.truncated ? evidence.data?.items ?? [] : [], [evidence.loading, evidence.error, evidence.data]);
-  const sample = sampleAt(seeking || !ready || error ? [] : items, time, fps, cadence, hold);
+  const sample = sampleAt(seeking || !ready || error || !aligned ? [] : items, time, fps, cadence, hold);
   const visible = sample.items.filter((row) => row.confidence >= threshold && (classFilter === 'all' || row.label === classFilter));
   const selectedRow = visible.find((row) => row.track_id === selected);
   const identity = selectedRow ? confirmedIdentity(selectedRow, identities, upload.id) : null;
@@ -94,12 +98,12 @@ export function VideoEvidence({ videoRef, match, upload, job, identities, player
     const confirmed = confirmedIdentity(row, identities, upload.id);
     return confirmed ? players.find((p) => p.id === confirmed.player_id)?.display_name ?? 'Confirmed roster identity' : `${humanize(row.label)} · ${trackLabel(row.track_id)}`;
   };
-  const currentStatus = !job ? 'No detector job' : evidence.error ? 'Evidence unavailable' : evidence.loading ? 'Loading source evidence' : evidence.data?.truncated ? 'Evidence window too dense' : sample.items.length ? sample.held ? 'Last observed sample' : 'Observed source sample' : segment?.status === 'completed' ? 'No boxes at this moment' : 'No completed sample here';
+  const currentStatus = !job ? 'No detector job' : evidence.error ? 'Evidence unavailable' : evidence.loading ? 'Loading source evidence' : !aligned ? 'Overlay geometry unavailable' : evidence.data?.truncated ? 'Evidence window too dense' : sample.items.length ? sample.held ? 'Last observed sample' : 'Observed source sample' : segment?.status === 'completed' ? 'No boxes at this moment' : 'No completed sample here';
 
   return <section className="evidence-room" ref={room} aria-label="Video analysis workspace">
     <header className="ev-heading"><div><span className="ev-kicker"><ScanLine size={14} /> SOURCE / EVIDENCE</span><h2>Inside the match.</h2><p>Every overlay has a source. Every unknown stays visible.</p></div><span className="ev-private"><ShieldCheck size={14} />Private review</span></header>
     <div className="ev-layout"><div className="ev-cinema">
-      <div className="ev-stage" style={{ aspectRatio: `${upload.width || 16} / ${upload.height || 9}` }}>
+      <div className="ev-stage" style={{ aspectRatio: aspect }}>
         <video ref={videoRef} src={localVideoPath(upload.id)} preload="metadata" playsInline muted={muted} aria-label={`Private match video: ${match.title}`}
           onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
           onSeeking={() => setSeeking(true)} onSeeked={() => { setSeeking(false); if (videoRef.current) setTime(videoRef.current.currentTime); }}
@@ -107,13 +111,15 @@ export function VideoEvidence({ videoRef, match, upload, job, identities, player
           onError={() => { setError('The private video could not be loaded. Refresh or check the source format and permission.'); setReady(false); }}
           onLoadedMetadata={() => {
             setReady(true); setError('');
+            const video = videoRef.current;
+            setPresentationAspect(video && video.videoWidth > 0 && video.videoHeight > 0 ? video.videoWidth / video.videoHeight : null);
             const target = Number(new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('t'));
             if (videoRef.current && Number.isFinite(target) && target >= 0) { videoRef.current.currentTime = Math.min(duration, target); setTime(Math.min(duration, target)); }
           }} />
         <svg className="ev-overlay" viewBox={`0 0 1000 ${imageHeight}`} aria-label="Source image observations">
-          {boxes && trail.length > 1 && <polyline className="ev-trail" points={trail.map((row) => `${(row.bbox[0] + row.bbox[2]) * 500},${row.bbox[3] * imageHeight}`).join(' ')} />}
+          {boxes && geometry && trail.length > 1 && <polyline className="ev-trail" points={trail.map((row) => { const [x, y] = displayPoint((row.bbox[0] + row.bbox[2]) / 2, row.bbox[3], geometry); return `${x * 1000},${y * imageHeight}`; }).join(' ')} />}
           {boxes && visible.map((row) => {
-            const [x1, y1, x2, y2] = row.bbox;
+            const [x1, y1, x2, y2] = geometry ? displayBox(row.bbox, geometry) : row.bbox;
             const confirmed = confirmedIdentity(row, identities, upload.id);
             return <g key={row.id} role="button" tabIndex={0} aria-label={`Inspect ${nameFor(row)}`} aria-pressed={selected === row.track_id} className={`ev-box ${selected === row.track_id ? 'selected' : ''}`} style={{ color: colors[row.label] ?? '#fff' }} onClick={() => { select(row.track_id); setTab('tracks'); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(row.track_id); setTab('tracks'); } }}>
               <title>{nameFor(row)} · detector score {percent(row.confidence, true)} · sample {sourceTime(row.timestamp_seconds)} · {confirmed ? 'reviewer-confirmed identity' : 'anonymous track'}</title>
@@ -126,6 +132,7 @@ export function VideoEvidence({ videoRef, match, upload, job, identities, player
         <div className="ev-stage-bottom"><span>{sample.timestamp !== null ? `Sample ${sourceTime(sample.timestamp)} · ${sample.age!.toFixed(2)}s old${sample.held ? ' · held position, not interpolated' : ''}` : 'No positional claim for this frame'}</span><span>{visible.length} shown / {sample.items.length} stored boxes</span></div>
         {!ready && !error && <div className="ev-awaiting"><ScanLine size={32} /><span>Loading private source…</span></div>}
       </div>
+      {ready && evidence.data && !evidence.loading && !evidence.error && !aligned && <p className="ev-error" role="alert">Boxes and trails are hidden: source orientation / pixel geometry is unknown or differs from the browser presentation. Reprocess legacy metadata, or upload a normalized export. No positional claims are made.</p>}
       {error && <p className="ev-error" role="alert">{error}</p>}
       {evidence.error && <p className="ev-error" role="alert">{evidence.error} <button onClick={evidence.reload}>Retry evidence</button></p>}
       {evidence.data?.truncated && <p className="ev-error" role="alert">This window exceeds 5,000 observations. Overlays are hidden rather than presenting an incomplete set.</p>}

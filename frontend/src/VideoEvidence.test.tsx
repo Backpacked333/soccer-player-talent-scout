@@ -14,13 +14,14 @@ vi.mock('./api', () => ({ api: vi.fn() }));
 const upload: UploadRead = { id: 'upload', match_id: testMatch.id, workspace_id: 'workspace-test', duration_seconds: 60, width: 1280, height: 720, fps: 30, original_filename: 'synthetic-test.mp4', content_type: 'video/mp4', size_bytes: 1000, sha256: 'a'.repeat(64), status: 'probed', is_synthetic: true, created_at: '2025-01-01' };
 const job = { id: 'job', upload_id: upload.id, match_id: testMatch.id, updated_at: '2025-01-01', status: 'needs_review', stage: 'detector_complete', processing_coverage: { sample_interval_seconds: .5, sampled_frames: 120, completed_chunks: 2, planned_chunks: 3 } } as JobRead;
 const observation = { id: 'observation', upload_id: upload.id, match_id: testMatch.id, is_synthetic: true, track_id: 'chunk:segment:player-1', processing_chunk_id: 'segment', timestamp_seconds: 1, bbox: [.1, .2, .3, .6] as [number, number, number, number], label: 'player', confidence: .85, model_version: 'synthetic-test-only' };
-const window: TimelineWindow = { job_id: job.id, upload_id: upload.id, start_seconds: 0, end_seconds: 15, truncated: false, items: [observation], segments: [{ start_seconds: 0, end_seconds: 30, status: 'completed' }, { start_seconds: 30, end_seconds: 60, status: 'failed' }] };
+const window: TimelineWindow = { job_id: job.id, upload_id: upload.id, start_seconds: 0, end_seconds: 15, truncated: false, display_geometry: { transform: 'identity', aspect_ratio: 16 / 9 }, items: [observation], segments: [{ start_seconds: 0, end_seconds: 30, status: 'completed' }, { start_seconds: 30, end_seconds: 60, status: 'failed' }] };
 
 beforeEach(() => { vi.mocked(api).mockReset(); vi.mocked(api).mockImplementation(async (path) => path.includes('action-value') ? unavailableValue : window); });
-function setup(identities: Identity[] = []) {
+function setup(identities: Identity[] = [], width = 1280, height = 720) {
   const videoRef = createRef<HTMLVideoElement>();
   const onReviewTrack = vi.fn();
   const view = render(<VideoEvidence videoRef={videoRef} match={testMatch} upload={upload} job={job} identities={identities} players={[testPlayer]} events={[{ ...testEvent, timestamp_seconds: 2.5 }]} onReviewTrack={onReviewTrack} />);
+  Object.defineProperties(videoRef.current!, { videoWidth: { value: width }, videoHeight: { value: height } });
   fireEvent.loadedMetadata(videoRef.current!);
   const time = (seconds: number) => { videoRef.current!.currentTime = seconds; fireEvent.timeUpdate(videoRef.current!); };
   return { ...view, videoRef, time, onReviewTrack };
@@ -86,6 +87,20 @@ describe('synchronized evidence workspace', () => {
     expect(container.querySelector('.ev-trail')).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText('Min. detector score'), '0.9');
     expect(container.querySelector('.ev-trail')).not.toBeInTheDocument();
+  });
+  it('rotates boxes into a portrait presentation instead of overlaying raw landscape coordinates', async () => {
+    vi.mocked(api).mockResolvedValue({ ...window, display_geometry: { transform: 'rotate_90_ccw', aspect_ratio: 9 / 16 } });
+    const { time } = setup([], 720, 1280); time(1);
+    const box = (await screen.findByRole('button', { name: 'Inspect Player · player-1' })).querySelector('rect')!;
+    expect(Number(box.getAttribute('x'))).toBeCloseTo(200);
+    expect(Number(box.getAttribute('y'))).toBeCloseTo(.7 * 1000 * 16 / 9);
+    expect(Number(box.getAttribute('width'))).toBeCloseTo(400);
+  });
+  it.each([null, { transform: 'rotate_90_ccw', aspect_ratio: 9 / 16 }])('hides unknown or browser-mismatched source geometry: %j', async (display_geometry) => {
+    vi.mocked(api).mockResolvedValue({ ...window, display_geometry });
+    const { time } = setup(); time(1);
+    expect(await screen.findByRole('alert')).toHaveTextContent('source orientation / pixel geometry is unknown');
+    expect(screen.queryByRole('button', { name: 'Inspect Player · player-1' })).not.toBeInTheDocument();
   });
   it('does not draw truncated or wrong-source evidence', async () => {
     vi.mocked(api).mockResolvedValue({ ...window, truncated: true });

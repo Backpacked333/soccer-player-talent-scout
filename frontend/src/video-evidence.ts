@@ -1,16 +1,37 @@
 import type { Identity, Observation } from './intelligence-types';
 
+const transforms = {
+  identity: [1, 0, 0, 1, 0, 0], rotate_90_ccw: [0, -1, 1, 0, 0, 1],
+  rotate_180: [-1, 0, 0, -1, 1, 1], rotate_270_ccw: [0, 1, -1, 0, 1, 0],
+  flip_x: [-1, 0, 0, 1, 1, 0], flip_y: [1, 0, 0, -1, 0, 1],
+  transpose: [0, 1, 1, 0, 0, 0], transverse: [0, -1, -1, 0, 1, 1],
+} as const;
+export interface DisplayGeometry { transform: keyof typeof transforms; aspect_ratio: number }
+
+export function displayPoint(x: number, y: number, geometry: DisplayGeometry): [number, number] {
+  const [a, b, c, d, e, f] = transforms[geometry.transform];
+  return [a * x + c * y + e, b * x + d * y + f];
+}
+
+export function displayBox(bbox: Observation['bbox'], geometry: DisplayGeometry): Observation['bbox'] {
+  const [x1, y1, x2, y2] = bbox;
+  const points = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]].map(([x, y]) => displayPoint(x, y, geometry));
+  return [Math.min(...points.map(([x]) => x)), Math.min(...points.map(([, y]) => y)), Math.max(...points.map(([x]) => x)), Math.max(...points.map(([, y]) => y))];
+}
+
 export interface TimelineWindow {
   job_id: string;
   upload_id: string;
   start_seconds: number;
   end_seconds: number;
   truncated: boolean;
+  display_geometry?: DisplayGeometry | null;
   items: (Observation & { upload_id: string; match_id: string; is_synthetic: boolean })[];
   segments: { start_seconds: number; end_seconds: number; status: string }[];
 }
 
 export function validateTimeline(data: TimelineWindow, jobId: string, uploadId: string, matchId: string, synthetic: boolean, start: number, end: number) {
+  if (data.display_geometry != null && (!Object.hasOwn(transforms, data.display_geometry.transform) || !Number.isFinite(data.display_geometry.aspect_ratio) || data.display_geometry.aspect_ratio <= 0 || data.display_geometry.aspect_ratio > 128)) throw new Error('The source display transform is invalid. Overlays are hidden.');
   if (data.job_id !== jobId || data.upload_id !== uploadId || data.start_seconds !== start || data.end_seconds !== end || typeof data.truncated !== 'boolean' || !Array.isArray(data.items) || data.items.length > 5000 || !Array.isArray(data.segments) || data.segments.length > 1440 || data.items.some((row) =>
     row.upload_id !== uploadId || row.match_id !== matchId || row.is_synthetic !== synthetic || !Number.isFinite(row.timestamp_seconds) || row.timestamp_seconds < start || row.timestamp_seconds >= end ||
     !Array.isArray(row.bbox) || row.bbox.length !== 4 || row.bbox.some((n) => !Number.isFinite(n) || n < 0 || n > 1) || row.bbox[2] <= row.bbox[0] || row.bbox[3] <= row.bbox[1]
