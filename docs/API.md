@@ -103,6 +103,12 @@ Direct-duel ratings only consume explicit reviewed contest IDs. Mirrored records
 
 Spatial value is unavailable without the operator-only `SCOUT_ACTION_VALUE_ARTIFACT_PATH`. No request-selected filesystem path, URL or model upload exists. Strict bounded JSON import validates exact authorized scope before revealing metadata; scoring verifies all original training evidence is still current. Corrections/deletions invalidate stale artifacts. See [ALGORITHMS.md](ALGORITHMS.md) and [ACTION_VALUE.md](ACTION_VALUE.md).
 
+## Bounded video evidence windows
+
+`GET /jobs/{job_id}/timeline?start=0&end=15` returns `TimelineWindow`: job/upload IDs, the requested half-open source interval, up to 5,000 time/ID-ordered observations, an explicit `truncated` flag, and a compact processing-segment ledger (at most 1,440 intervals). Require finite nonnegative source seconds, positive duration and a window no longer than 30 seconds. Responses are private/no-store and require authentication, workspace ownership, current upload rights, authorized roster and unexpired retention. Only completed chunks belonging to this exact job/match/upload/mode contribute. Legacy unchunked observations are available only for an unambiguous settled job, as in the existing observation page.
+
+Clients must hide overlays on truncation, scope mismatch, request failure or an unresolved source-window change, not imply a partial result is complete. The private viewer requests 10-second buckets with surrounding context for trails, uses the presented-video-frame clock where supported, and never interpolates positions. Identity assignments are separate reviewed records; raw `player_id` fields must not be treated as automatic identity confirmation. Segment completion means sampled detection coverage, not exhaustive events or uninterrupted tracking.
+
 ## Transparent analytics and exports
 
 | Method | Path | Query | Response |

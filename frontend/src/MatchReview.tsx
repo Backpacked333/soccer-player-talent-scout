@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { IdentityReview } from './IdentityReview';
+import { VideoEvidence } from './VideoEvidence';
+import type { Identity, Observation } from './intelligence-types';
 import { EventSemantics } from './EventSemantics';
 import { EventValue, PlayerKnowledge, knowledgeQuery } from './Knowledge';
 import type { FormEvent } from 'react';
@@ -11,7 +13,7 @@ import { MatchForm } from './Matches';
 import type { AppearanceRead, AttestationRead, AuditRead, EventRead, EventWrite, JobRead, MatchRead, Mode, PlayerRead, UploadRead } from './types';
 import { EVENT_KINDS } from './types';
 import { Empty, ErrorBox, Field, JobCard, Loading, PageHeading, Panel, Pitch, StatusBadge, Success } from './ui';
-import { clock, dateLabel, eventWrite, humanize, inMode, localVideoPath, percent } from './utils';
+import { clock, dateLabel, eventWrite, humanize, inMode, percent } from './utils';
 
 function EventEditor({ match, roster, players, editing, maxTime, getCurrentTime, onSaved, onCancel }: { match: MatchRead; roster: AppearanceRead[]; players: PlayerRead[]; editing: EventRead | null; maxTime: number; getCurrentTime: () => number; onSaved: () => void; onCancel: () => void }) {
   const [draft, setDraft] = useState<EventWrite>(() => editing ? eventWrite(editing) : { player_id: '', kind: 'pass', outcome: 'unknown', timestamp_seconds: getCurrentTime(), end_timestamp_seconds: null, status: 'draft', opponent_player_id: null, start_x: null, start_y: null, end_x: null, end_y: null, notes: '' });
@@ -43,16 +45,16 @@ export function MatchReview({ id, mode }: { id: string; mode: Mode }) {
   const [editingDetails, setEditingDetails] = useState(false);
   const [editor, setEditor] = useState<{ event: EventRead | null; key: number } | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
-  const [videoError, setVideoError] = useState('');
+  const [selectedTrack, setSelectedTrack] = useState<Observation | null>(null);
   const [permissionCheck, checkPermission] = useState(0);
   const video = useRef<HTMLVideoElement>(null); const polls = useRef(0);
   const action = useAction();
   const resource = useResource(async (signal) => {
-    const [match, roster, players, events, upload, attestation, jobs, audit] = await Promise.all([
-      api<MatchRead>(`/matches/${id}`, { signal }), api<AppearanceRead[]>(`/matches/${id}/roster`, { signal }), api<PlayerRead[]>(`/players?mode=${mode}`, { signal }), api<EventRead[]>(`/matches/${id}/events`, { signal }), optional<UploadRead>(`/matches/${id}/upload`, signal), optional<AttestationRead>(`/matches/${id}/attestation`, signal), api<JobRead[]>(`/jobs?mode=${mode}`, { signal }), api<AuditRead[]>(`/matches/${id}/audit`, { signal }),
+    const [match, roster, players, events, upload, attestation, jobs, audit, identities] = await Promise.all([
+      api<MatchRead>(`/matches/${id}`, { signal }), api<AppearanceRead[]>(`/matches/${id}/roster`, { signal }), api<PlayerRead[]>(`/players?mode=${mode}`, { signal }), api<EventRead[]>(`/matches/${id}/events`, { signal }), optional<UploadRead>(`/matches/${id}/upload`, signal), optional<AttestationRead>(`/matches/${id}/attestation`, signal), api<JobRead[]>(`/jobs?mode=${mode}`, { signal }), api<AuditRead[]>(`/matches/${id}/audit`, { signal }), api<Identity[]>(`/matches/${id}/identities`, { signal }),
     ]);
     if (match.is_synthetic !== (mode === 'demo')) throw new Error('This match belongs to the other data mode. Change the workspace data mode to view it.');
-    return { match, roster, players: inMode(players, mode), events: inMode(events, mode), upload, attestation, jobs: inMode(jobs, mode).filter((j) => j.match_id === id).sort((a, b) => b.created_at.localeCompare(a.created_at)), audit: inMode(audit, mode) };
+    return { match, roster, players: inMode(players, mode), events: inMode(events, mode), upload, attestation, jobs: inMode(jobs, mode).filter((j) => j.match_id === id).sort((a, b) => b.created_at.localeCompare(a.created_at)), audit: inMode(audit, mode), identities };
   }, `${id}:${mode}`);
   const retentionDeadline = resource.data?.upload && resource.data.attestation ? Date.parse(resource.data.upload.created_at) + resource.data.attestation.retention_days * 86400000 : NaN;
   useEffect(() => {
@@ -67,7 +69,7 @@ export function MatchReview({ id, mode }: { id: string; mode: Mode }) {
   useEffect(() => { if (!activeJobs || polls.current >= 120) return; const timer = window.setTimeout(() => { polls.current += 1; reloadJobs(); }, 5000); return () => window.clearTimeout(timer); }, [activeJobs, resource.data, reloadJobs]);
   const seek = (seconds: number) => { if (video.current) { video.current.currentTime = Math.max(0, Math.min(seconds, Number.isFinite(video.current.duration) ? video.current.duration : seconds)); video.current.focus(); } };
   if (!resource.data) return <><a href="#/matches" className="back-link"><ArrowLeft size={15} />Match library</a>{resource.loading ? <Loading label="Loading match evidence…" /> : <ErrorBox message={resource.error} retry={resource.reload} />}</>;
-  const { match, roster, players, events, upload, attestation, jobs, audit } = resource.data;
+  const { match, roster, players, events, upload, attestation, jobs, audit, identities } = resource.data;
   const approved = events.filter((e) => e.status === 'approved');
   const hasPermission = !!attestation && Number.isFinite(retentionDeadline) && Date.now() < retentionDeadline;
   const canReview = roster.length > 0 && (match.is_synthetic || (hasPermission && upload?.status === 'probed' && upload.duration_seconds !== null));
@@ -87,11 +89,11 @@ export function MatchReview({ id, mode }: { id: string; mode: Mode }) {
         <Panel title="03 / Private match footage" subtitle="No public media URLs. No automatic identity inference." className="form-panel">{match.is_synthetic ? <Empty icon={<FileVideo2 size={24} />} title="Synthetic fixture, not real footage" description="This demo intentionally contains no real minors’ videos. Switch to your real workspace to upload authorized footage." /> : <UploadPanel matchId={id} upload={upload} permitted={!!attestation && roster.length > 0} onSaved={resource.reload} />}</Panel>
         <Panel title="Delete match & evidence" className="form-panel"><p className="small muted">Permanently delete this match, its private footage and linked evidence. This affects current player statistics. Exports already downloaded are not deleted.</p><button className="button danger-button" disabled={action.busy} onClick={() => { if (window.confirm(`Permanently delete “${match.title}”, its footage and evidence? This cannot be undone.`)) void action.run(async () => { await api(`/matches/${id}`, { method: 'DELETE' }); window.location.hash = '/matches'; }); }}><Trash2 size={16} />Delete match & private footage</button></Panel>
       </div>}
-      {tab === 'review' && <><div className="review-grid"><div className="review-main">
-        <Panel title="Evidence player" subtitle={upload ? 'Private footage · timestamps are relative to the source file' : 'Review the source, not a prediction'}>
-          <div className="video-shell">{upload && canReview ? <video ref={video} src={localVideoPath(upload.id)} controls preload="metadata" aria-label={`Private match video: ${match.title}`} onError={() => setVideoError('The private video could not be loaded. Refresh the match or check that the file is supported.')} onLoadedMetadata={() => { setVideoError(''); const time = Number(new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('t')); if (Number.isFinite(time) && time >= 0) seek(time); }} /> : <div className="video-placeholder"><Pitch decorative /><div><span className="video-play-outline"><Play size={23} /></span><h3>{match.is_synthetic ? 'Synthetic evidence workspace' : 'Bring the match into focus'}</h3><p>{match.is_synthetic ? 'Demo observations only. No real player footage is included.' : 'Link the roster, record permission and upload authorized footage.'}</p>{!match.is_synthetic && <button className="button mint" onClick={() => setTab('setup')}>Set up private footage<ArrowLeft size={15} className="rotate-180" /></button>}</div></div>}</div>
-          <ErrorBox message={videoError} /><div className="video-caption"><span><span className="status-dot" />{upload && canReview ? 'Authenticated source video' : 'No accessible video source'}</span><span>Private · not publicly shared</span></div>
-        </Panel>
+      {tab === 'review' && <>{upload && canReview && <VideoEvidence key={upload.id} videoRef={video} match={match} upload={upload} job={jobs.find((job) => job.upload_id === upload.id)} identities={resource.loading ? [] : identities} players={players} events={events} onReviewTrack={(row) => { setSelectedTrack(row); document.getElementById('identity-review')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} />}<div className="review-grid"><div className="review-main">
+        {(!upload || !canReview) && <Panel title="Evidence player" subtitle="Review the source, not a prediction">
+          <div className="video-shell"><div className="video-placeholder"><Pitch decorative /><div><span className="video-play-outline"><Play size={23} /></span><h3>{match.is_synthetic ? 'Synthetic evidence workspace' : 'Bring the match into focus'}</h3><p>{match.is_synthetic ? 'Demo observations only. No real player footage is included.' : 'Link the roster, record permission and upload authorized footage.'}</p>{!match.is_synthetic && <button className="button mint" onClick={() => setTab('setup')}>Set up private footage<ArrowLeft size={15} className="rotate-180" /></button>}</div></div></div>
+          <div className="video-caption"><span>No accessible video source</span><span>Private · not publicly shared</span></div>
+        </Panel>}
         {jobs.map((job) => <JobCard key={job.id} job={job} busy={action.busy} onRetry={() => void action.run(async () => { await api(`/jobs/${job.id}/retry`, { method: 'POST' }); polls.current = 0; resource.reload(); }, 'Processing retry queued.')} />)}
         {activeJobs && <button className="text-button" onClick={() => { polls.current = 0; resource.reload(); }}>{polls.current >= 120 ? 'Automatic polling paused. Refresh status' : 'Refresh processing status'}</button>}
         <Panel title="Reviewed pitch evidence" subtitle="Only approved events with explicit pitch coordinates appear."><Pitch events={approved} /><p className="footnote pad-inline">No heatmap, calibrated movement or inferred tracking is generated by metadata probing.</p></Panel>
@@ -99,7 +101,7 @@ export function MatchReview({ id, mode }: { id: string; mode: Mode }) {
         <Panel title="Observation desk" subtitle="One actor. One moment. A traceable decision."><div className="pad"><div className="review-principles"><span>01 <strong>Identify the roster actor</strong></span><span>02 <strong>Check source & outcome</strong></span><span>03 <strong>Approve with context</strong></span></div><button className="button primary full" disabled={!canReview} onClick={() => setEditor({ event: null, key: Date.now() })}><Plus size={17} />Add observation</button>{!canReview && <p className="small warning-text">{reviewBlock}</p>}<p className="small muted">Draft and rejected events never contribute to player metrics. You remain the reviewer.</p></div></Panel>
         {editor && canReview && <Panel><EventEditor key={editor.key} match={match} roster={roster} players={players} editing={editor.event} maxTime={upload?.duration_seconds ?? match.duration_seconds} getCurrentTime={() => video.current?.currentTime ?? 0} onCancel={() => setEditor(null)} onSaved={() => { setEditor(null); resource.reload(); }} /></Panel>}
       </aside></div>
-      <IdentityReview key={`${id}-${mode}-${events.map((e) => e.updated_at).join()}`} match={match} mode={mode} roster={roster} players={players} events={events} upload={canReview ? upload : null} job={jobs[0]} onSaved={resource.reload} />
+      <div id="identity-review"><IdentityReview key={`${id}-${mode}-${events.map((e) => e.updated_at).join()}`} match={match} mode={mode} roster={roster} players={players} events={events} upload={canReview ? upload : null} job={jobs[0]} selectedObservation={selectedTrack} onSaved={resource.reload} /></div>
       <Panel title="Observation log" subtitle="Corrections update current metrics. Every change is audited." action={<label className="compact-select"><span className="sr-only">Filter review status</span><select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="all">All decisions</option><option value="approved">Approved</option><option value="draft">Draft</option><option value="rejected">Rejected</option></select></label>}>
         {displayed.length === 0 ? <Empty title="No observations in this view" description="Review an actor and a moment in the footage, then record what actually happened. Only approved events count." /> : <div className="table-scroll"><table><thead><tr><th>Source time</th><th>Actor & event</th><th>Outcome</th><th>Review decision</th><th>Provenance & confidence</th><th>Actions</th></tr></thead><tbody>{displayed.map((event) => <tr key={event.id}>
           <td><button className="timestamp-button" disabled={!upload || !canReview} onClick={() => seek(event.timestamp_seconds)} aria-label={`Seek to ${clock(event.timestamp_seconds)}`}><Play size={12} />{clock(event.timestamp_seconds)}</button>{event.end_timestamp_seconds !== null && <small>to {clock(event.end_timestamp_seconds)}</small>}</td>

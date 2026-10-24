@@ -21,7 +21,7 @@ from app.db import utcnow
 from app.models import Appearance, Match, ProcessingChunk, ProcessingJob, RightsAttestation, TrackObservation, Upload
 from app.intelligence.service import identity_service
 from app.processing_contracts import ProcessingChunkRead
-from app.schemas import JobRead, Mode, ObservationPage, ObservationRead, ProcessingChunkPage, UploadRead, UploadResponse
+from app.schemas import JobRead, Mode, ObservationPage, ObservationRead, ProcessingChunkPage, TimelineSegment, TimelineWindow, UploadRead, UploadResponse
 from app.services import bounded, check_retention, open_private, owned, private_path, probe_upload, public_job, validate_filename
 
 router = APIRouter()
@@ -231,24 +231,48 @@ def chunk_page(job_id: str, cursor: int = Query(default=-1, ge=-1, le=1440), lim
     return ProcessingChunkPage(items=items, next_cursor=str(items[-1].sequence) if len(rows) > limit else None)
 
 
-@router.get("/jobs/{job_id}/observations", response_model=ObservationPage)
-def observation_page(job_id: str, cursor: str = Query(default="", max_length=36), limit: int = Query(default=100, ge=1, le=500), track_id: str | None = Query(default=None, max_length=80), chunk_id: str | None = Query(default=None, max_length=36), principal: Principal = Depends(current_user), db: Session = Depends(api_db)):
-    job = owned(db, ProcessingJob, job_id, principal.workspace_id)
+def observation_statement(db: Session, principal: Principal, job: ProcessingJob):
     match = owned(db, Match, job.match_id, principal.workspace_id)
     require_upload_rights(db, principal, match)
     chunks = select(ProcessingChunk.id).where(ProcessingChunk.workspace_id == principal.workspace_id, ProcessingChunk.job_id == job.id, ProcessingChunk.upload_id == job.upload_id, ProcessingChunk.match_id == job.match_id, ProcessingChunk.is_synthetic == job.is_synthetic, ProcessingChunk.status == "completed")
-    statement = select(TrackObservation).where(TrackObservation.workspace_id == principal.workspace_id, TrackObservation.is_synthetic == job.is_synthetic, TrackObservation.match_id == job.match_id, TrackObservation.upload_id == job.upload_id, TrackObservation.id > cursor)
+    statement = select(TrackObservation).where(TrackObservation.workspace_id == principal.workspace_id, TrackObservation.is_synthetic == job.is_synthetic, TrackObservation.match_id == job.match_id, TrackObservation.upload_id == job.upload_id)
     has_chunks = db.scalar(chunks.limit(1))
     if has_chunks:
         statement = statement.where(TrackObservation.processing_chunk_id.in_(chunks))
     else:
         jobs = db.scalar(select(func.count()).select_from(ProcessingJob).where(ProcessingJob.workspace_id == principal.workspace_id, ProcessingJob.upload_id == job.upload_id))
         if jobs != 1 or job.status not in {"needs_review", "completed"}:
-            return ObservationPage()
+            return None
         statement = statement.where(TrackObservation.processing_chunk_id.is_(None))
+    return statement
+
+
+@router.get("/jobs/{job_id}/observations", response_model=ObservationPage)
+def observation_page(job_id: str, cursor: str = Query(default="", max_length=36), limit: int = Query(default=100, ge=1, le=500), track_id: str | None = Query(default=None, max_length=80), chunk_id: str | None = Query(default=None, max_length=36), principal: Principal = Depends(current_user), db: Session = Depends(api_db)):
+    job = owned(db, ProcessingJob, job_id, principal.workspace_id)
+    statement = observation_statement(db, principal, job)
+    if statement is None:
+        return ObservationPage()
+    statement = statement.where(TrackObservation.id > cursor)
     if track_id:
         statement = statement.where(TrackObservation.track_id == track_id)
     if chunk_id:
         statement = statement.where(TrackObservation.processing_chunk_id == chunk_id)
     rows = list(db.scalars(statement.order_by(TrackObservation.id).limit(limit+1)))
     return ObservationPage(items=[ObservationRead.model_validate(row) for row in rows[:limit]], next_cursor=rows[limit-1].id if len(rows) > limit else None)
+
+
+@router.get("/jobs/{job_id}/timeline", response_model=TimelineWindow)
+def timeline_window(job_id: str, start: float = Query(ge=0, le=14400, allow_inf_nan=False), end: float = Query(gt=0, le=14400, allow_inf_nan=False), principal: Principal = Depends(current_user), db: Session = Depends(api_db)):
+    job = owned(db, ProcessingJob, job_id, principal.workspace_id)
+    statement = observation_statement(db, principal, job)
+    if not 0 < end - start <= 30:
+        fail(422, "timeline_interval", "Request a positive source window of at most 30 seconds.")
+    result = TimelineWindow(job_id=job.id, upload_id=job.upload_id, start_seconds=start, end_seconds=end)
+    segments = db.execute(select(ProcessingChunk.start_seconds, ProcessingChunk.end_seconds, ProcessingChunk.status).where(ProcessingChunk.workspace_id == principal.workspace_id, ProcessingChunk.job_id == job.id, ProcessingChunk.upload_id == job.upload_id, ProcessingChunk.match_id == job.match_id, ProcessingChunk.is_synthetic == job.is_synthetic).order_by(ProcessingChunk.sequence).limit(1440))
+    result.segments = [TimelineSegment(start_seconds=a, end_seconds=b, status=status) for a, b, status in segments]
+    if statement is not None:
+        rows = list(db.scalars(statement.where(TrackObservation.timestamp_seconds >= start, TrackObservation.timestamp_seconds < end).order_by(TrackObservation.timestamp_seconds, TrackObservation.id).limit(5001)))
+        result.truncated = len(rows) > 5000
+        result.items = [ObservationRead.model_validate(row) for row in rows[:5000]]
+    return result

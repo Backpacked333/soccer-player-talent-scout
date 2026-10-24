@@ -535,6 +535,22 @@ class ObservationPage(Contract):
     next_cursor: str | None = Field(default=None, max_length=200)
 
 
+class TimelineSegment(Contract):
+    start_seconds: Seconds
+    end_seconds: Seconds
+    status: str
+
+
+class TimelineWindow(Contract):
+    job_id: Id
+    upload_id: Id
+    start_seconds: Seconds
+    end_seconds: Seconds
+    items: list[ObservationRead] = Field(default_factory=list, max_length=5000)
+    truncated: bool = False
+    segments: list[TimelineSegment] = Field(default_factory=list, max_length=1440)
+
+
 class VisionResult(Contract):
     status: Literal["needs_configuration", "needs_review", "completed"]
     stage: str = Field(max_length=50)
