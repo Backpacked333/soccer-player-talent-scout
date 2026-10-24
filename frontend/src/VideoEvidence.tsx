@@ -55,7 +55,7 @@ export function VideoEvidence({ videoRef, match, upload, job, identities, player
   const items = useMemo(() => !evidence.loading && !evidence.error && !evidence.data?.truncated ? evidence.data?.items ?? [] : [], [evidence.loading, evidence.error, evidence.data]);
   const sample = sampleAt(seeking || !ready || error ? [] : items, time, fps, cadence, hold);
   const visible = sample.items.filter((row) => row.confidence >= threshold && (classFilter === 'all' || row.label === classFilter));
-  const selectedRow = sample.items.find((row) => row.track_id === selected);
+  const selectedRow = visible.find((row) => row.track_id === selected);
   const identity = selectedRow ? confirmedIdentity(selectedRow, identities, upload.id) : null;
   const player = identity ? players.find((row) => row.id === identity.player_id) : null;
   const trail = selectedRow && trails ? trackTrail(items, selectedRow, cadence) : [];

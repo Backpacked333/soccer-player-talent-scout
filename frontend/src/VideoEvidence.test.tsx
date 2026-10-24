@@ -74,6 +74,19 @@ describe('synchronized evidence workspace', () => {
     expect(screen.queryByRole('button', { name: 'Inspect Player · player-1' })).not.toBeInTheDocument();
     await waitFor(() => expect(api).toHaveBeenCalledWith('/jobs/job/timeline?start=15&end=35', expect.anything()));
   });
+  it('removes a selected trail and inspector when its track is filtered out', async () => {
+    vi.mocked(api).mockResolvedValue({ ...window, items: [{ ...observation, id: 'prior', timestamp_seconds: .5 }, observation] });
+    const user = userEvent.setup(); const { time, container } = setup(); time(1);
+    await user.click(await screen.findByRole('button', { name: 'Inspect Player · player-1' }));
+    expect(container.querySelector('.ev-trail')).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Class'), 'ball');
+    expect(container.querySelector('.ev-trail')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Review track identity/ })).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Class'), 'all');
+    expect(container.querySelector('.ev-trail')).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Min. detector score'), '0.9');
+    expect(container.querySelector('.ev-trail')).not.toBeInTheDocument();
+  });
   it('does not draw truncated or wrong-source evidence', async () => {
     vi.mocked(api).mockResolvedValue({ ...window, truncated: true });
     const { time } = setup(); time(1);
