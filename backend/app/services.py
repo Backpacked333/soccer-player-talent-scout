@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.auth import Principal, fail
 from app.config import Settings
 from app.db import utcnow
+from app.media_geometry import display_geometry
 from app.models import Appearance, AuditLog, Match, RightsAttestation, Upload
 from app.schemas import EventWrite, JobRead, VideoMetadata
 
@@ -118,7 +119,7 @@ def probe_upload(path: Path, settings: Settings) -> VideoMetadata:
     valid_magic = header.startswith(b"\x1aE\xdf\xa3") if path.suffix == ".webm" else len(header) >= 12 and header[4:8] == b"ftyp"
     if not valid_magic:
         fail(422, "invalid_video", "The file content is not a supported video container.")
-    command = [settings.ffprobe_binary, "-v", "error", "-protocol_whitelist", "file", "-format_whitelist", "mov,matroska,webm", "-max_alloc", "67108864", "-probesize", "10000000", "-analyzeduration", "10000000", "-show_entries", "format=format_name,duration:stream=codec_type,codec_name,width,height,avg_frame_rate", "-of", "json"]
+    command = [settings.ffprobe_binary, "-v", "error", "-protocol_whitelist", "file", "-format_whitelist", "mov,matroska,webm", "-max_alloc", "67108864", "-probesize", "10000000", "-analyzeduration", "10000000", "-show_entries", "format=format_name,duration:stream=codec_type,codec_name,width,height,avg_frame_rate,sample_aspect_ratio:stream_tags=rotate:stream_side_data_list", "-of", "json"]
     try:
         with open_private(settings, path.name) as media, tempfile.TemporaryFile() as output:
             command += ["-i", f"/proc/self/fd/{media.fileno()}"]
@@ -138,7 +139,7 @@ def probe_upload(path: Path, settings: Settings) -> VideoMetadata:
             raise ValueError("container mismatch")
         if path.suffix != ".webm" and "mov" not in format_names:
             raise ValueError("container mismatch")
-        metadata = VideoMetadata(duration_seconds=float(payload["format"]["duration"]), width=video[0]["width"], height=video[0]["height"], fps=float(Fraction(video[0]["avg_frame_rate"])), codec=video[0]["codec_name"])
+        metadata = VideoMetadata(duration_seconds=float(payload["format"]["duration"]), width=video[0]["width"], height=video[0]["height"], fps=float(Fraction(video[0]["avg_frame_rate"])), codec=video[0]["codec_name"], display_geometry=display_geometry(video[0]))
         if metadata.duration_seconds > settings.max_video_seconds or max(metadata.width, metadata.height) > settings.max_video_dimension:
             raise ValueError("configured limits")
         allowed_codecs = {"vp8", "vp9", "av1"} if path.suffix == ".webm" else {"h264", "hevc", "av1", "mpeg4"}

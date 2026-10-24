@@ -21,8 +21,8 @@ from app.db import utcnow
 from app.models import Appearance, Match, ProcessingChunk, ProcessingJob, RightsAttestation, TrackObservation, Upload
 from app.intelligence.service import identity_service
 from app.processing_contracts import ProcessingChunkRead
-from app.schemas import JobRead, Mode, ObservationPage, ObservationRead, ProcessingChunkPage, UploadRead, UploadResponse
-from app.services import bounded, check_retention, open_private, owned, private_path, probe_upload, public_job, validate_filename
+from app.schemas import JobRead, Mode, ObservationPage, ObservationRead, ProcessingChunkPage, TimelineSegment, TimelineWindow, UploadRead, UploadResponse, VideoMetadata
+from app.services import audit, bounded, check_retention, open_private, owned, private_path, probe_upload, public_job, validate_filename
 
 router = APIRouter()
 UPLOAD_SLOTS = threading.BoundedSemaphore(4)
@@ -219,6 +219,38 @@ def retry_job(job_id: str, request: Request, principal: Principal = Depends(curr
     return public_job(job, db)
 
 
+@router.post("/jobs/{job_id}/revalidate-source", response_model=VideoMetadata)
+def revalidate_source(job_id: str, request: Request, principal: Principal = Depends(current_user), db: Session = Depends(api_db)):
+    job = owned(db, ProcessingJob, job_id, principal.workspace_id)
+    source = owned(db, Upload, job.upload_id, principal.workspace_id)
+    match = owned(db, Match, job.match_id, principal.workspace_id)
+    require_upload_rights(db, principal, match)
+    if source.match_id != match.id or source.is_synthetic != job.is_synthetic or match.is_synthetic != job.is_synthetic:
+        fail(409, "job_relationship", "This job's evidence relationships are inconsistent.")
+    if job.status in {"queued", "running"}:
+        fail(409, "job_active", "Wait for the processing job to settle before revalidating its source.")
+    if not UPLOAD_SLOTS.acquire(blocking=False):
+        fail(429, "media_busy", "Media validation is busy. Try again shortly.")
+    try:
+        settings = request.app.state.settings
+        with open_private(settings, source.storage_key) as media:
+            if os.fstat(media.fileno()).st_size != source.size_bytes or hashlib.file_digest(media, "sha256").hexdigest() != source.sha256:
+                fail(409, "source_changed", "Stored source bytes differ from the original upload. Evidence was preserved; contact your operator.")
+        metadata = probe_upload(private_path(settings, source.storage_key), settings)
+        if (metadata.width, metadata.height, metadata.duration_seconds, metadata.fps) != (source.width, source.height, source.duration_seconds, source.fps):
+            fail(409, "metadata_changed", "Source metadata differs from the validated upload. Evidence was preserved.")
+        saved = {**job.result_json, "metadata": metadata.model_dump(mode="json")}
+        before = job.result_json.get("metadata")
+        changed = db.execute(update(ProcessingJob).where(ProcessingJob.id == job.id, ProcessingJob.workspace_id == principal.workspace_id, ProcessingJob.status == job.status, ProcessingJob.updated_at == job.updated_at).values(result_json=saved, updated_at=utcnow()))
+        if cast(CursorResult[Any], changed).rowcount != 1:
+            fail(409, "job_changed", "The job changed during validation. Refresh and try again.")
+        audit(db, principal, match, "processing_job", job.id, "source_geometry_revalidated", before, saved["metadata"])
+        db.commit()
+        return metadata
+    finally:
+        UPLOAD_SLOTS.release()
+
+
 @router.get("/jobs/{job_id}/chunks", response_model=ProcessingChunkPage)
 def chunk_page(job_id: str, cursor: int = Query(default=-1, ge=-1, le=1440), limit: int = Query(default=50, ge=1, le=100), principal: Principal = Depends(current_user), db: Session = Depends(api_db)):
     job = owned(db, ProcessingJob, job_id, principal.workspace_id)
@@ -231,24 +263,52 @@ def chunk_page(job_id: str, cursor: int = Query(default=-1, ge=-1, le=1440), lim
     return ProcessingChunkPage(items=items, next_cursor=str(items[-1].sequence) if len(rows) > limit else None)
 
 
-@router.get("/jobs/{job_id}/observations", response_model=ObservationPage)
-def observation_page(job_id: str, cursor: str = Query(default="", max_length=36), limit: int = Query(default=100, ge=1, le=500), track_id: str | None = Query(default=None, max_length=80), chunk_id: str | None = Query(default=None, max_length=36), principal: Principal = Depends(current_user), db: Session = Depends(api_db)):
-    job = owned(db, ProcessingJob, job_id, principal.workspace_id)
+def observation_statement(db: Session, principal: Principal, job: ProcessingJob):
     match = owned(db, Match, job.match_id, principal.workspace_id)
     require_upload_rights(db, principal, match)
     chunks = select(ProcessingChunk.id).where(ProcessingChunk.workspace_id == principal.workspace_id, ProcessingChunk.job_id == job.id, ProcessingChunk.upload_id == job.upload_id, ProcessingChunk.match_id == job.match_id, ProcessingChunk.is_synthetic == job.is_synthetic, ProcessingChunk.status == "completed")
-    statement = select(TrackObservation).where(TrackObservation.workspace_id == principal.workspace_id, TrackObservation.is_synthetic == job.is_synthetic, TrackObservation.match_id == job.match_id, TrackObservation.upload_id == job.upload_id, TrackObservation.id > cursor)
+    statement = select(TrackObservation).where(TrackObservation.workspace_id == principal.workspace_id, TrackObservation.is_synthetic == job.is_synthetic, TrackObservation.match_id == job.match_id, TrackObservation.upload_id == job.upload_id)
     has_chunks = db.scalar(chunks.limit(1))
     if has_chunks:
         statement = statement.where(TrackObservation.processing_chunk_id.in_(chunks))
     else:
         jobs = db.scalar(select(func.count()).select_from(ProcessingJob).where(ProcessingJob.workspace_id == principal.workspace_id, ProcessingJob.upload_id == job.upload_id))
         if jobs != 1 or job.status not in {"needs_review", "completed"}:
-            return ObservationPage()
+            return None
         statement = statement.where(TrackObservation.processing_chunk_id.is_(None))
+    return statement
+
+
+@router.get("/jobs/{job_id}/observations", response_model=ObservationPage)
+def observation_page(job_id: str, cursor: str = Query(default="", max_length=36), limit: int = Query(default=100, ge=1, le=500), track_id: str | None = Query(default=None, max_length=80), chunk_id: str | None = Query(default=None, max_length=36), principal: Principal = Depends(current_user), db: Session = Depends(api_db)):
+    job = owned(db, ProcessingJob, job_id, principal.workspace_id)
+    statement = observation_statement(db, principal, job)
+    if statement is None:
+        return ObservationPage()
+    statement = statement.where(TrackObservation.id > cursor)
     if track_id:
         statement = statement.where(TrackObservation.track_id == track_id)
     if chunk_id:
         statement = statement.where(TrackObservation.processing_chunk_id == chunk_id)
     rows = list(db.scalars(statement.order_by(TrackObservation.id).limit(limit+1)))
     return ObservationPage(items=[ObservationRead.model_validate(row) for row in rows[:limit]], next_cursor=rows[limit-1].id if len(rows) > limit else None)
+
+
+@router.get("/jobs/{job_id}/timeline", response_model=TimelineWindow)
+def timeline_window(job_id: str, start: float = Query(ge=0, le=14400, allow_inf_nan=False), end: float = Query(gt=0, le=14400, allow_inf_nan=False), principal: Principal = Depends(current_user), db: Session = Depends(api_db)):
+    job = owned(db, ProcessingJob, job_id, principal.workspace_id)
+    statement = observation_statement(db, principal, job)
+    if not 0 < end - start <= 30:
+        fail(422, "timeline_interval", "Request a positive source window of at most 30 seconds.")
+    result = TimelineWindow(job_id=job.id, upload_id=job.upload_id, start_seconds=start, end_seconds=end)
+    try:
+        result.display_geometry = VideoMetadata.model_validate(job.result_json.get("metadata")).display_geometry
+    except (ValueError, AttributeError):
+        pass
+    segments = db.execute(select(ProcessingChunk.start_seconds, ProcessingChunk.end_seconds, ProcessingChunk.status).where(ProcessingChunk.workspace_id == principal.workspace_id, ProcessingChunk.job_id == job.id, ProcessingChunk.upload_id == job.upload_id, ProcessingChunk.match_id == job.match_id, ProcessingChunk.is_synthetic == job.is_synthetic).order_by(ProcessingChunk.sequence).limit(1440))
+    result.segments = [TimelineSegment(start_seconds=a, end_seconds=b, status=status) for a, b, status in segments]
+    if statement is not None:
+        rows = list(db.scalars(statement.where(TrackObservation.timestamp_seconds >= start, TrackObservation.timestamp_seconds < end).order_by(TrackObservation.timestamp_seconds, TrackObservation.id).limit(5001)))
+        result.truncated = len(rows) > 5000
+        result.items = [ObservationRead.model_validate(row) for row in rows[:5000]]
+    return result

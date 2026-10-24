@@ -20,6 +20,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from app.config import Settings
+from app.media_geometry import display_geometry
 from app.integrations import VisionSettings, detector_readiness
 from app.integrations import get_integrations as get_integrations
 from app.schemas import VideoMetadata, VisionResult
@@ -60,7 +61,7 @@ def probe_video(video_path: Path, *, settings: Settings) -> VideoMetadata:
         # An inherited descriptor pins the already-validated regular file. Whitelist
         # excludes HLS/playlists and HTTP/crypto/concat/subfile network protocols.
         command = [settings.ffprobe_binary, "-v", "error"]
-        command += ["-protocol_whitelist", "file", "-format_whitelist", "mov,matroska,webm,avi", "-max_alloc", "67108864", "-probesize", "10000000", "-analyzeduration", "10000000", "-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height,avg_frame_rate,r_frame_rate,duration:format=duration,format_name", "-of", "json", "-i", f"/proc/self/fd/{media.fileno()}"]
+        command += ["-protocol_whitelist", "file", "-format_whitelist", "mov,matroska,webm,avi", "-max_alloc", "67108864", "-probesize", "10000000", "-analyzeduration", "10000000", "-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height,avg_frame_rate,r_frame_rate,duration,sample_aspect_ratio:stream_tags=rotate:stream_side_data_list:format=duration,format_name", "-of", "json", "-i", f"/proc/self/fd/{media.fileno()}"]
         try:
             with tempfile.TemporaryFile() as output:
                 completed = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.DEVNULL, pass_fds=(media.fileno(),), timeout=settings.probe_timeout_seconds, check=False, env=child_environment())
@@ -94,7 +95,7 @@ def probe_video(video_path: Path, *, settings: Settings) -> VideoMetadata:
             raise MediaError("resolution_limit", "Video resolution exceeds the configured limit. Export a lower-resolution copy.")
         if not re.fullmatch(r"[A-Za-z0-9_]{1,80}", codec):
             raise ValueError("invalid codec")
-        return VideoMetadata(duration_seconds=duration, width=width, height=height, fps=fps, codec=codec)
+        return VideoMetadata(duration_seconds=duration, width=width, height=height, fps=fps, codec=codec, display_geometry=display_geometry(stream))
     except (ValueError, KeyError, IndexError, TypeError, ZeroDivisionError, OverflowError) as exc:
         raise MediaError("invalid_video_metadata", "Video timing or dimensions are invalid. Export a standard video with a valid video track.") from exc
 

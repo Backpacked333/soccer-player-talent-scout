@@ -2,6 +2,7 @@
 import json
 import shutil
 import subprocess
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -31,6 +32,59 @@ def test_actual_metadata_probe_is_not_analysis(clip):
     assert (result.metadata.width, result.metadata.height, result.metadata.fps) == (320, 240, 25)
     assert result.metadata.codec == "mpeg4"
     assert str(path) not in result.model_dump_json()
+
+
+@pytest.mark.parametrize(("rotation", "transform", "expected"), [
+    (0, "identity", (.1, .2, .3, .6)),
+    (90, "rotate_90_ccw", (.2, .7, .6, .9)),
+    (180, "rotate_180", (.7, .4, .9, .8)),
+    (270, "rotate_270_ccw", (.4, .1, .8, .3)),
+])
+def test_actual_display_rotation_matches_presented_pixels(clip, rotation, transform, expected):
+    from app.services import probe_upload
+    path, settings = clip
+    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=320x240:r=10,drawbox=x=32:y=48:w=64:h=96:color=white:t=fill", "-t", "1", "-c:v", "mpeg4", "-y", str(path)], check=True, timeout=10, env=vision.child_environment())
+    rotated = path.with_name(f"{uuid4()}.mp4")
+    help_text = subprocess.run(["ffmpeg", "-hide_banner", "-h", "full"], check=True, timeout=10, capture_output=True, text=True, env=vision.child_environment()).stdout
+    # FFmpeg 6+ no longer writes display matrices through the legacy rotate tag.
+    input_options = ["-display_rotation", str(rotation)] if "-display_rotation" in help_text else []
+    output_options = [] if input_options else ["-metadata:s:v:0", f"rotate={rotation}"]
+    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", *input_options, "-i", str(path), "-c", "copy", *output_options, "-y", str(rotated)], check=True, timeout=10, env=vision.child_environment())
+    metadata = vision.probe_video(rotated, settings=settings)
+    assert metadata.display_geometry.transform == transform
+    assert metadata.width == 320 and metadata.height == 240  # Raw detector coordinates stay unchanged.
+    assert probe_upload(rotated, settings).display_geometry == metadata.display_geometry
+    width, height = (240, 320) if rotation in {90, 270} else (320, 240)
+    assert metadata.display_geometry.aspect_ratio == pytest.approx(width / height)
+    frame = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(rotated), "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"], check=True, timeout=10, capture_output=True, env=vision.child_environment()).stdout
+    assert len(frame) == width * height
+    points = [(i % width, i // width) for i, value in enumerate(frame) if value > 220]
+    actual = (min(x for x, _ in points) / width, min(y for _, y in points) / height, (max(x for x, _ in points) + 1) / width, (max(y for _, y in points) + 1) / height)
+    assert actual == pytest.approx(expected, abs=.01)
+
+
+def test_geometry_accounts_for_pixel_aspect_and_refuses_unknown_transforms():
+    from app.media_geometry import display_geometry
+    stream = {"width": 720, "height": 576, "sample_aspect_ratio": "16:15"}
+    assert display_geometry(stream).aspect_ratio == pytest.approx(4 / 3)
+    assert display_geometry(stream | {"tags": {"rotate": "90"}}) is None
+    matrix = "00000000: 46341 -46341 0\n00000001: 46341 46341 0\n00000002: 0 0 1073741824"
+    assert display_geometry(stream | {"side_data_list": [{"side_data_type": "Display Matrix", "displaymatrix": matrix}]}) is None
+    for aspect in ("1:0", "-1:1", "bad"):
+        assert display_geometry(stream | {"sample_aspect_ratio": aspect}) is None
+
+
+def test_unrelated_large_tags_do_not_expand_probe_output(clip):
+    from app.services import probe_upload
+    path, settings = clip
+    tagged = path.with_name(f"{uuid4()}.mp4")
+    irrelevant = "irrelevant-test-tag-" * 5000
+    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(path), "-c", "copy", "-metadata", f"comment={irrelevant}", "-metadata:s:v:0", f"handler_name={irrelevant}", "-y", str(tagged)], check=True, timeout=10, env=vision.child_environment())
+    output = subprocess.run(["ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", str(tagged)], check=True, timeout=10, capture_output=True, env=vision.child_environment()).stdout
+    assert len(output) > 65536
+    assert irrelevant.encode() in output
+    assert probe_upload(tagged, settings).display_geometry.transform == "identity"
+    assert vision.probe_video(tagged, settings=settings).display_geometry.transform == "identity"
 
 
 def test_worker_isolated_child_preserves_metadata(clip):

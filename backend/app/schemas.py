@@ -417,12 +417,18 @@ class WorkspaceExport(Contract):
 
 
 # Internal worker/vision contracts; these are not upload request bodies.
+class DisplayGeometry(Contract):
+    transform: Literal["identity", "rotate_90_ccw", "rotate_180", "rotate_270_ccw", "flip_x", "flip_y", "transpose", "transverse"]
+    aspect_ratio: float = Field(gt=0, le=128)
+
+
 class VideoMetadata(Contract):
     duration_seconds: float = Field(gt=0, le=14400)
     width: int = Field(gt=0, le=8192)
     height: int = Field(gt=0, le=8192)
     fps: float = Field(gt=0, le=240)
     codec: str = Field(min_length=1, max_length=80)
+    display_geometry: DisplayGeometry | None = None
 
 
 class CandidateEvent(Contract):
@@ -533,6 +539,23 @@ class ObservationRead(ObservationWrite):
 class ObservationPage(Contract):
     items: list[ObservationRead] = Field(default_factory=list, max_length=500)
     next_cursor: str | None = Field(default=None, max_length=200)
+
+
+class TimelineSegment(Contract):
+    start_seconds: Seconds
+    end_seconds: Seconds
+    status: str
+
+
+class TimelineWindow(Contract):
+    job_id: Id
+    upload_id: Id
+    start_seconds: Seconds
+    end_seconds: Seconds
+    items: list[ObservationRead] = Field(default_factory=list, max_length=5000)
+    truncated: bool = False
+    display_geometry: DisplayGeometry | None = None
+    segments: list[TimelineSegment] = Field(default_factory=list, max_length=1440)
 
 
 class VisionResult(Contract):
